@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>AWS Translator</title>
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+	<style>
+
+		input[type=text], textarea {
+			
+			padding: 4px;
+			border: 1px solid #ccc;
+			border-radius: 4px;
+			resize: vertical;
+			font-family: Verdana;
+			font-size: 24px;
+			vertical-align: middle;
+		}
+		select {
+			padding: 12px;
+			border: 1px solid #ccc;
+			border-radius: 4px;
+			resize: vertical;
+			font-family: Verdana;
+			font-size: 24px;
+			width: 20%;
+		}
+
+		button {
+			background-color: #4CAF50;
+			color: white;
+			padding: 4px 6px;
+			border: none;
+			border-radius: 4px;
+			cursor: pointer;
+			font-family: Verdana;
+			font-size: 24px;
+			vertical-align: middle;
+		}
+		
+		img {
+			vertical-align: middle;
+		}
+
+		.center {
+			margin: 0 auto;
+			position: relative;
+		}
+
+		.container {
+			border-radius: 5px;
+			background-color: #f2f2f2;
+			padding: 20px;
+			margin: 0 auto;
+			position: relative;
+			width: 80%;
+		}
+
+		.row {
+			text-align: center;
+			margin-top: 6px;
+			height: 660px;
+		}
+
+
+		/* Clear floats after the columns */
+		.row:after {
+			content: "";
+			display: table;
+			clear: both;
+		}
+		
+		td {
+			font-family: Verdana;
+			font-size: 16px;
+			text-align: left;
+			cursor: pointer;
+		}
+		div {
+			font-family: Verdana;
+			font-size: 16px;
+		}
+		
+		#quizPanel, #mainMenu, #translatePanel, #readPicPanel, #result {
+			display: none
+		}
+		
+		#answer, #result {
+			vertical-align: middle
+	
+		}
+		
+		span {
+			font-size: 24px;	
+		}
+		
+		.title {
+			font-size: 32px;
+			width : 40%;
+		}
+		
+		#video {
+		  border: 1px solid black;
+		  box-shadow: 2px 2px 3px black;
+		}
+		
+		#photo {
+		  border: 1px solid black;
+		  box-shadow: 2px 2px 3px black;
+		}
+		
+		#pictureGrabber
+		{
+			width: 660;
+			height: 490;
+			top: 2%;
+			
+			text-align: center;
+			display: inline-block;
+		}
+		
+		#canvas {
+		  display: none;
+		}
+		
+		#camera {
+		  display: none;
+		  margin: 0 auto;
+		}
+		
+		#output {
+		  display: none;
+		  margin: 0 auto;
+		}
+		
+	</style>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.js"></script>
+	<script src="aws-sdk-2.235.1.js"></script>
+	<script src="credentials.js"></script>
+	<script>
+	
+	var polly;
+	var translate;
+	var rekognition;
+
+	function initAWS(region) {
+		AWS.config.region = region;
+	    AWS.config.accessKeyId = AWS_ACCESS_KEY_ID;
+	    AWS.config.secretAccessKey = AWS_SECRET_ACCESS_KEY;
+	}
+	
+	function initPolly(region) {
+		polly = new AWS.Polly({ region: region});
+	}
+	
+	function initTranslate(region) {
+		translate = new AWS.Translate({ region: region});
+	}
+	
+	function initRekognition(region) {
+		rekognition = new AWS.Rekognition({ region: region});
+	}
+	
+	function updateGoogleSigninStatus(isSignedIn) {
+		if (isSignedIn) {
+			googleServicesAuthorized();
+		}
+	}
+
+	function googleServicesAuthorized() {
+		gapi.client.load('speech', 'v1', function() {
+			gapi.client.load('translate', 'v2', function () {
+				setSpeechStatus('Loaded.');
+			});
+		});
+	}
+
+	function initGoogleServices() {
+		setSpeechStatus('Loading...');
+		gapi.load('client:auth2', function () {
+			gapi.client.init({
+				'apiKey': GOOGLE_API_KEY,
+				// Your API key will be automatically added to the Discovery Document URLs.
+				'discoveryDocs': [
+					"https://speech.googleapis.com/$discovery/rest?version=v1",
+		    		"https://translation.googleapis.com/$discovery/rest?version=v2"
+		    	],
+				// clientId and scope are optional if auth is not required.
+				'clientId': GOOGLE_CLIENT_ID,
+				'scope': 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/cloud-translation',
+			}).then(function() {
+				gapi.auth2.getAuthInstance().isSignedIn.listen(updateGoogleSigninStatus);
+				var authorized = gapi.auth2.getAuthInstance().isSignedIn.get();
+				
+				if (authorized)
+					googleServicesAuthorized();
+				else
+					gapi.auth2.getAuthInstance().signIn();
+			});
+		});
+	}
+	
+	
+	var lastTranslatedText;
+
+	function translateAudioData(audioData) {
+		setSpeechStatus('Analyzing...');
+		recognizeSpeech(audioData, speechToTextInputLanguages[inputLang].recognizeInputLangCode, function (text) {
+			console.log('recognized text=' + text);
+			setText('inputText', text);
+			console.log("translating text ...");
+			translateText(text, inputLang, outputLang, function (translatedText) {
+				console.log('translated text=' + translatedText);
+				lastTranslatedText = translatedText;
+				
+				setText('outputText', translatedText);
+				speak(translatedText, outputLang);
+			});
+		});
+	}
+	
+	function translateIt() {
+		var text = document.getElementById('inputText').value;
+		console.log("translating text ...");
+		translateText(text, inputLang, outputLang, function (translatedText) {
+			console.log('translated text=' + translatedText);
+			lastTranslatedText = translatedText;
+			
+			setText('outputText', translatedText);
+			speak(translatedText, outputLang);
+		});
+	}
+	
+	function playLastResponse() {
+		if (lastTranslatedText) {
+			speak(lastTranslatedText, outputLang);
+		}
+	}
+
+	function playAudioFromUrl(url, finishHandler) {
+		setSpeechStatus('Speaking...');
+		var audio = new Audio(url);
+		audio.onended = function() {
+			setSpeechStatus('');
+			if (finishHandler)
+				finishHandler();
+		}
+		audio.play();
+	}
+
+	var pollyVoicesByLang = {
+		'tr': 'Filiz',
+		'en': 'Joanna',
+		'es': 'Penelope',
+		'de': 'Vicki',
+		'fr': 'Céline'
+	}
+		
+	function speak(txt, lang, finishHandler) {
+		var params = {
+			OutputFormat: 'mp3',
+			Text: txt,
+			VoiceId: pollyVoicesByLang[lang],
+		};
+		
+		polly.synthesizeSpeech(params, function(err, data) {
+			if (err)
+				console.log(err, err.stack);
+			else {
+				var uInt8Array = new Uint8Array(data.AudioStream);
+				var arrayBuffer = uInt8Array.buffer;
+				var blob = new Blob([arrayBuffer]);
+				var url = URL.createObjectURL(blob);
+				
+				playAudioFromUrl(url, finishHandler);
+			}
+		});		
+	}
+	
+	function translateText(text, sourceLang, targetLang, translationHandler) {
+		var useAWS = true;
+		if (useAWS)
+			translateTextAWS(text, sourceLang, targetLang, translationHandler);
+		else
+			translateTextGoogle(text, sourceLang, targetLang, translationHandler);
+	}
+
+	function translateTextGoogle(text, sourceLang, targetLang, translationHandler) {
+		gapi.client.language.translations.translate({ 
+			'q': text,
+			'source': sourceLang,
+			'target': targetLang,
+			'format': 'text'
+		}).execute(function(r) {
+			console.log(r);
+			if (r.data.translations.length > 0) {
+				var translatedText = r.data.translations[0].translatedText;
+				translationHandler(translatedText);
+			}
+		});
+	}
+
+	function translateTextAWS(text, sourceLang, targetLang, translationHandler) {
+		var params = {
+			Text: text,
+			SourceLanguageCode: sourceLang,
+			TargetLanguageCode: targetLang
+		};
+		translate.translateText(params, function (err, data) {
+			if (err) 
+				console.log(err, err.stack); // an error occurred
+			else
+				translationHandler(data.TranslatedText);
+		});
+	}
+
+	function extractBestSpeechResult(results) {
+		var bestScore = 0;
+		var bestAlternative = null;
+		var ret = null;
+		
+		for (var i = 0; i < results.length; i++) {
+			var alternatives = results[i].alternatives;
+			for (var j = 0; j < alternatives.length; j++) {
+				var alt = alternatives[j];
+				
+				if (alt.confidence > bestScore) {
+					bestScore = alt.confidence;
+					bestAlternative = alt;
+				}
+			}
+		}
+		if (bestAlternative != null)
+			ret = bestAlternative.transcript;
+		return ret;
+	}
+	
+	function recognizeSpeech(audioData, recognizeInputLanguage, recognitionHandler) {
+		console.log("recognizing speech ...");
+		recognizeSpeechGoogle(arrayBufferToBase64(audioData), recognizeInputLanguage, recognitionHandler);
+	}
+	
+	function recognizeSpeechGoogle(base64Audio, inputLang, recognitionHandler) {
+		gapi.client.speech.speech.recognize({
+			config: {
+				'languageCode': inputLang,
+				'maxAlternatives': 5 
+			},
+			audio: {
+				'content': base64Audio
+			}
+		}).execute(function (r) {
+			setSpeechStatus('');
+			var text = null;
+
+			if (r.result && r.result.results)
+				text = extractBestSpeechResult(r.result.results);
+			if (text)
+				recognitionHandler(text);
+		});
+	}
+
+	var speechRecorder = {};
+	var recording = false;
+
+	function stopRecording(target) {
+		if (recording) {
+			recording = false;
+			setSpeechStatus('');
+			document.getElementById('micImage_' + target).src = 'images/mic.png';
+			speechRecorder.recorder.stop();
+		}
+	}
+	function startRecording(target) {
+		if (!recording) {
+			recording = true;
+			setSpeechStatus('Listening...');
+			if (target == 't') {
+				setText('inputText', '?');
+				setText('outputText', '?');
+			}
+			else {
+				showResult('');
+				setText('answer', '?');
+			}
+			document.getElementById('micImage_' + target).src = 'images/mic_active.png';
+			speechRecorder.audioHandler = target === 't' ? translateAudio : checkQuizAnswer;
+			speechRecorder.recorder.start();
+		}
+	}
+	
+	function toggleRecording(target) {
+		if (recording)
+			stopRecording(target);
+		else
+			startRecording(target);
+	}
+
+	function floatTo16BitPCM(output, offset, input) {
+	  for (var i = 0; i < input.length; i++, offset += 2) {
+		var s = Math.max(-1, Math.min(1, input[i]));
+		output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+	  }
+	}
+
+	function writeString(view, offset, string) {
+	  for (var i = 0; i < string.length; i++) {
+		view.setUint8(offset + i, string.charCodeAt(i));
+	  }
+	}
+
+	function encodeWAV(samples) {
+	  var buffer = new ArrayBuffer(44 + samples.length * 2);
+	  var view = new DataView(buffer);
+
+	  writeString(view, 0, 'RIFF');
+	  view.setUint32(4, 32 + samples.length * 2, true);
+	  writeString(view, 8, 'WAVE');
+	  writeString(view, 12, 'fmt ');
+	  view.setUint32(16, 16, true);
+	  view.setUint16(20, 1, true);
+	  view.setUint16(22, 1, true);
+	  view.setUint32(24, speechRecorder.audioContext.sampleRate, true);
+	  view.setUint32(28, speechRecorder.audioContext.sampleRate * 2, true);
+	  view.setUint16(32, 2, true);
+	  view.setUint16(34, 16, true);
+	  writeString(view, 36, 'data');
+	  view.setUint32(40, samples.length * 2, true);
+	  floatTo16BitPCM(view, 44, samples);
+
+	  return view;
+	}
+	function arrayBufferToBase64( buffer ) {
+		var binary = '';
+		var bytes = new Uint8Array( buffer );
+		var len = bytes.byteLength;
+		for (var i = 0; i < len; i++) {
+			binary += String.fromCharCode( bytes[ i ] );
+		}
+		return window.btoa( binary );
+	}
+
+	function saveFile(blob, fileName, type)	{
+		saveAs(blob, fileName, type);
+	}
+
+	var inputLang = 'en';
+	var speechToTextInputLanguages = {
+		'tr': {
+			'recognizeInputLangCode': 'tr-TR'
+		},
+		'en': {
+			'recognizeInputLangCode': 'en-US'
+		},
+		'es': {
+			'recognizeInputLangCode': 'es-ES'
+		},
+		'de': {
+			'recognizeInputLangCode': 'de-DE'
+		},
+		'fr': {
+			'recognizeInputLangCode': 'fr-FR'
+		}
+	}
+	var outputLang = 'es';
+
+	function translateAudio(wavBlob) {
+		var fileReader = new FileReader();
+		fileReader.onload = function() {
+		    var arrayBuffer = fileReader.result;
+		    translateAudioData(arrayBuffer);
+		};
+		fileReader.readAsArrayBuffer(wavBlob);
+	}
+	
+	function reSample(audioBuffer, targetSampleRate, onComplete) {
+		var channel = audioBuffer.numberOfChannels;
+		var samples = audioBuffer.length * targetSampleRate / audioBuffer.sampleRate;
+		
+		var offlineContext = new OfflineAudioContext(channel, samples, targetSampleRate);
+		var bufferSource = offlineContext.createBufferSource();
+		bufferSource.buffer = audioBuffer;
+		
+		bufferSource.connect(offlineContext.destination);
+		bufferSource.start(0);
+		offlineContext.startRendering().then(function(renderedBuffer){
+			onComplete(renderedBuffer);
+		});
+	}
+
+	var SILENCE_THRESHOLD = 0.005;
+    
+	function removeSilence(buffer) {
+		var l = buffer.length;
+		var nonSilenceStart = 0;
+		var nonSilenceEnd = l;
+		while (nonSilenceStart < l) {
+			if (Math.abs(buffer[nonSilenceStart]) > SILENCE_THRESHOLD)
+				break;
+			nonSilenceStart++;
+		}
+		while (nonSilenceEnd > nonSilenceStart) {
+			if (Math.abs(buffer[nonSilenceEnd]) > SILENCE_THRESHOLD)
+				break;
+			nonSilenceEnd--;
+		}
+		var retBuffer = buffer;
+		if (nonSilenceStart != 0 || nonSilenceEnd != l) {
+			retBuffer = buffer.subarray(nonSilenceStart, nonSilenceEnd);
+		}
+		return retBuffer;
+	}
+
+	function convertFloat32ToInt16(buffer) {
+		var l = buffer.length;
+		var buf = new Int16Array(l);
+		while (l--) {
+			buf[l] = Math.min(1, buffer[l]) * 0x7FFF;
+		}
+		return buf;
+	}
+    
+	function initSpeechRecording() {
+		setSpeechStatus('Initializing speech recording ...');
+		navigator.mediaDevices.getUserMedia({
+			audio: true
+		}).then(function onSuccess(stream) {
+			var data = [];
+
+			speechRecorder.recorder = new MediaRecorder(stream);
+			speechRecorder.audioContext = new AudioContext();
+
+			speechRecorder.recorder.ondataavailable = function(e) {
+				data.push(e.data);
+			};
+
+			speechRecorder.recorder.onerror = function(e) {
+				throw e.error || new Error(e.name);
+			}
+
+			speechRecorder.recorder.onstart = function(e) {
+				data = [];
+			}
+
+			speechRecorder.recorder.onstop = function(e) {
+				setSpeechStatus('Checking silence...');
+				var blobData = new Blob(data, {type: 'video/webm'});
+				var reader = new FileReader();
+
+				reader.onload = function() {
+					speechRecorder.audioContext.decodeAudioData(reader.result, function(buffer) {
+						var channelBuffer = buffer.getChannelData(0);
+						var trimmedBuffer = removeSilence(channelBuffer);
+						if (trimmedBuffer.length > 0) {
+							var encodedWav = encodeWAV(trimmedBuffer);
+							var audioBlob = new Blob([encodedWav], { type: 'application/octet-stream' });
+							
+							speechRecorder.audioHandler(audioBlob);
+						}
+						else
+							setSpeechStatus('');
+					});
+				};
+				reader.readAsArrayBuffer(blobData);
+			}
+		});
+	}
+	function setText(id, txt) {
+		document.getElementById(id).value = txt;
+	}
+	
+	function getText(id) {
+		return document.getElementById(id).value;
+	}
+
+	function setSpeechStatus(txt) {
+		$('#speechStatus').html(txt);
+	}
+	
+	var initedPage = false;
+	
+	function showMainMenu() {
+		$("#selection").hide();
+		$("#mainMenu").show();
+		if (!initedPage) {
+			initPage();
+			initedPage = true;
+		}
+	}
+	function toMainMenu() {
+		$("#menuButtons").show();
+		$("#backButton").hide();
+		$("#translatePanel").hide();
+		$("#quizPanel").hide();
+		$("#readPicPanel").hide();
+		showTitle('');
+	}
+	function showTranslatePanel() {
+		$("#menuButtons").hide();
+		$("#backButton").show();
+		$("#translatePanel").show();
+		showTitle('Translate');
+		showDirection();
+	}
+	function showQuizPanel() {
+		$("#questionPanel").hide();
+		$("#quizStartPanel").show();
+		$("#nextQuestion").show();
+		$("#nextQuestion").html("Next");
+		questionNumber = 1;
+		score = 0;
+		showScore();
+		showResult('');
+		setText('answer', '');
+		
+		$("#menuButtons").hide();
+		$("#backButton").show();
+		$("#quizPanel").show();
+		showTitle('Quiz');
+		
+		speak(questionPrompts[inputLang]['start'].replace('%outputLang', languages[outputLang]), inputLang);
+	}
+	function showReadPicPanel() {
+		$("#menuButtons").hide();
+		$("#backButton").show();
+		$("#readPicPanel").show();
+		showTitle('Read Picture');
+	}
+	
+	var languages = {
+		"en" : "English",
+		"es" : "Spanish",
+		"tr" : "Turkish",
+		"de" : "German",
+		"fr" : "French"
+	};
+	
+	var questionPrompts = {
+		'en': {
+			'start': 'Try to pronounce sentences in %outputLang. Click "Start" to start.',
+			'ok': 'Very good. Click "Next" to continue.',
+			'okLast': 'Very good. Click "Finish" to finish.',
+			'tryAgain': 'Sorry. Please try again.',
+			'finished': 'Your score is '
+		}
+	};
+
+	var questions = [
+		{ 
+			'en' : [ 'what is your name', "what's your name" ],
+			'tr' : [ 'adın ne' ],
+			'es' : [ 'cual es tu nombre', 'cuál es tu nombre', 'como te llamas', 'cómo te llamas' ],
+			'de' : [ 'wie ist dein name' ],
+			'fr' : [ 'quel est votre nom' ]
+		},
+		{
+			'en' : [ 'where are you from' ],
+			'tr' : [ 'nerelisin' ],
+			'es' : [ 'de donde eres', 'de dónde eres', 'de donde eres tu' ],
+			'de' : [ 'wo bist du aus' ],
+			'fr' : [ 'où êtes-vous' ]
+		},
+		{
+			'en' : [ 'how old are you' ],
+			'tr' : [ 'kaç yaşındasın' ],
+			'es' : [ 'cuantos años tienes', '¿Qué edad tienes?', 'cuántos años tienes', '¿cuántos años tienes?'],
+			'de' : [ 'wie alt bist du' ],
+			'fr' : [ 'quel age as-tu' ]
+		},
+		{
+			'en' : [ 'good morning' ],
+			'tr' : [ 'günaydın'  ],
+			'es' : [ 'buenos dias', 'buenos días' ],
+			'de' : [ 'guten morgen' ],
+			'fr' : [ 'bonjour' ]
+		},
+		{
+			'en' : [ 'good evening' ],
+			'tr' : [ 'iyi akşamlar' ],
+			'es' : [ 'buenas noches', 'buenas tardes' ],
+			'de' : [ 'guten abend' ],
+			'fr' : [ 'bonsoir' ]
+		}
+	];
+	
+	var questionNumber = 1;
+	var score = 0;
+	
+	function showTitle(ttl) {
+		$("#title").html(ttl);
+	}
+	function showDirection() {
+		$("#translationDirectionFrom").html(languages[inputLang]);
+		$("#translationDirectionTo").html(languages[outputLang]);
+	}
+	
+	function changeDirection() {
+		var tmp = inputLang;
+		inputLang = outputLang;
+		outputLang = tmp;
+		showDirection();
+	}
+	
+	function startQuiz() {
+		$("#quizStartPanel").hide();
+		$("#questionPanel").show();
+		askQuestion(questionNumber);
+	}
+	
+	function askQuestion(qn) {
+		$("#micImage_q").show();
+		var qnText = qn + '/' + questions.length;
+		$("#questionNumber").html(qnText);
+		if (qn == questions.length)
+			$("#nextQuestion").html("Finish");
+		
+		var questionText = questions[qn - 1][inputLang][0];
+		document.getElementById('question').value = questionText;
+		
+		speak(questionText, inputLang);
+	}
+	
+	function showScore() {
+		$("#score").html(score);
+	}
+	
+	function showResult(res) {
+		if (res == '')
+			$("#result").hide();
+		else {
+			$("#result").show();
+			document.getElementById('result').src = 'images/' + res + '.png';
+		}
+	}
+	
+	function checkQuizAnswer(wavBlob) {
+		var fileReader = new FileReader();
+		fileReader.onload = function() {
+		    var arrayBuffer = fileReader.result;
+		    checkQuizAnswerBase64(arrayBuffer);
+		};
+		fileReader.readAsArrayBuffer(wavBlob);
+	}
+
+	function checkQuizAnswerBase64(audioData) {
+		setSpeechStatus('Analyzing...');
+		showResult('');
+		console.log("recognizing speech ...");
+		recognizeSpeech(audioData, speechToTextInputLanguages[outputLang].recognizeInputLangCode, function (text) {
+			console.log('recognized text=' + text);
+			setText('answer', text);
+			if (isAnswerCorrect(text)) {
+				showResult('ok');	
+				score += 100 / questions.length;
+				showScore();
+				
+				$("#micImage_q").hide();
+				
+				var msg = questionPrompts[inputLang][questionNumber == questions.length ? 'okLast' : 'ok']; 
+				speak(msg, inputLang);
+			}
+			else {
+				showResult('fail');
+				speak(questionPrompts[inputLang]['tryAgain'], inputLang);
+			}
+		});
+	}
+	
+	function isAnswerCorrect(answer) {
+		var ans = answer.toLowerCase();
+		if (ans[ans.length] == '.')
+			ans = ans.substring(0, ans.length - 1);
+		var qstns = questions[questionNumber - 1][outputLang];
+		for (var i = 0; i < qstns.length; i++) {
+			if (ans === qstns[i])
+				return true;
+		}
+		return false;
+	}
+	function nextQuestion() {
+		showResult('');
+		setText('answer', '');
+		
+		if (questionNumber == questions.length) {
+			$("#micImage_q").hide();
+			$("#nextQuestion").hide();
+			speak(questionPrompts[inputLang]['finished'] + String(score), inputLang);
+		}
+		else {
+			questionNumber++;
+			askQuestion(questionNumber);
+		}
+	}
+	
+	var videoSource = null;
+	var video = null;
+	var canvas = null;
+	var photo = null;
+	
+	var width = 0;    // We will scale the photo width to this
+	var height = 0;     // This will be computed based on the input stream
+
+	// |streaming| indicates whether or not we're currently streaming
+	// video from the camera. Obviously, we start at false.
+	
+	var streaming = false;
+	
+	function initImageCapture() {
+		setSpeechStatus('Initializing image capture ...');
+		videoSource = document.getElementById('videoSource');
+		video = document.getElementById('video');
+		canvas = document.getElementById('canvas');
+		photo = document.getElementById('photo');
+		
+		var selectedStream = null;
+		var videoSourceOnChange = function () {
+			if (selectedStream) {
+				selectedStream.getTracks().forEach(function(track) {
+					track.stop();
+				});
+			}
+			var constraints = {
+				audio: false,
+				video: {
+					optional: [{
+						sourceId: videoSource.value
+					}]
+				}
+			};
+			navigator.mediaDevices.getUserMedia(constraints).then(function onSuccess(stream) {
+				selectedStream = stream;
+				video.srcObject = stream;
+				video.play();
+			});
+		};
+		videoSource.onchange = videoSourceOnChange;
+		
+		video.addEventListener('canplay', function(ev){
+			if (!streaming) {
+				//height = video.videoHeight / (video.videoWidth/width);
+				height = video.videoHeight;
+				width = video.videoWidth;
+				
+				// Firefox currently has a bug where the height can't be read from
+				// the video, so we will make assumptions if this happens.
+				
+				if (isNaN(height)) {
+				  height = width / (4/3);
+				}
+				
+				video.setAttribute('width', 320);
+				video.setAttribute('height', 240);
+				canvas.setAttribute('width', 320);
+				canvas.setAttribute('height', 240);
+				output.setAttribute('width', width);
+				output.setAttribute('height', height);
+				streaming = true;
+				
+				setSpeechStatus('Ready.');
+			}
+		}, false);
+		
+		var backCameraIndex = -1;
+		
+		navigator.mediaDevices.enumerateDevices().then(function (deviceInfos) {
+			for (var i = 0; i !== deviceInfos.length; ++i) {
+				var deviceInfo = deviceInfos[i];
+				if (deviceInfo.kind === 'videoinput') {
+					var option = document.createElement('option');
+					option.value = deviceInfo.deviceId;
+					option.text = deviceInfo.label || 'camera ' + (videoSource.length + 1);
+					if (option.text.indexOf('back') != -1 || option.text.indexOf('rear') != -1)
+						backCameraIndex = videoSource.childElementCount;
+					videoSource.appendChild(option);
+				}
+			}
+			if (backCameraIndex == -1 && videoSource.length > 0)
+				backCameraIndex = 0;
+		}).then(function() { 
+			if (backCameraIndex != -1) // prefer back camera on mobil devices
+				videoSource.selectedIndex = backCameraIndex;
+		}).then(videoSourceOnChange);
+		
+		clearphoto();
+	}
+
+	// Fill the photo with an indication that none has been
+	// captured.
+	function clearphoto() {
+		var context = canvas.getContext('2d');
+		context.fillStyle = "#AAA";
+		context.fillRect(0, 0, canvas.width, canvas.height);
+		
+		var data = canvas.toDataURL('image/png');
+		photo.setAttribute('src', data);
+	}
+	
+	// Capture a photo by fetching the current contents of the video
+	// and drawing it into a canvas, then converting that to a PNG
+	// format data URL. By drawing it on an offscreen canvas and then
+	// drawing that to the screen, we can change its size and/or apply
+	// other changes before drawing it.
+	function takePicture() {
+		var context = canvas.getContext('2d');
+		
+		if (width && height) {
+			canvas.width = width;
+			canvas.height = height;
+			context.drawImage(video, 0, 0, width, height);
+				
+			var data = canvas.toDataURL('image/png');
+			photo.setAttribute('src', data);
+		
+			$("#camera").hide();
+			$("#output").show();
+				  
+			usePicture();
+		} else {
+			clearphoto();
+		}
+	}
+	
+	function usePicture() {
+		canvas.toBlob(function (blob) {
+			speak('Reading picture, please wait...', inputLang, function () {
+				readPhoto(blob);
+			});
+		});
+	}
+	
+	function prepareCamera() {
+		$("#camera").show();
+		$("#output").hide();
+		setText('inputTextp', '');
+		setText('outputTextp', '');
+	}
+
+	function readPhoto(blob) {
+		var arrayBuffer;
+		var fileReader = new FileReader();
+		fileReader.onload = function() {
+		    var arrayBuffer = this.result;
+			var params = {
+				Image: {
+					Bytes: arrayBuffer
+				}
+			};
+			rekognition.detectText(params, function(err, data) {
+				if (err) console.log(err, err.stack); // an error occurred
+				else {
+					var text = '';
+					for (var i = 0; i < data.TextDetections.length; i++) {
+						var td = data.TextDetections[i];
+						if (td.Type == "LINE")
+							text += td.DetectedText + "\n";
+					}
+					setText('inputTextp', text);
+					if (text !== '')
+						speak(text, outputLang, translateTextReadFromPic);
+				}		
+			});
+		};
+		fileReader.readAsArrayBuffer(blob);
+ 	}
+	
+	function playTextReadFromPic() {
+		var txt = getText('inputTextp');
+		speak(txt, outputLang);
+	}
+	
+	function playTranslatedTextFromPic() {
+		var txt = getText('outputTextp');
+		speak(txt, inputLang);
+	}
+	
+	function translateTextReadFromPic() {
+		var txt = getText('inputTextp');
+		console.log("translating text ...");
+		translateText(txt, outputLang, inputLang, function (translatedText) {
+			console.log('translated text=' + translatedText);
+			setText('outputTextp', translatedText);
+			speak(translatedText, inputLang);
+		});
+	}
+		
+	function initDashboard(region) {
+		initAWS(region);
+		initPolly(region);
+		initTranslate(region);
+		initRekognition(region);
+
+		initSpeechRecording();
+		initImageCapture();
+	}
+	
+	function initPage() {
+		initDashboard(AWS_REGION);
+	}
+	</script>
+</head>
+<body>
+	<div class="center">
+		<div class="container">
+			<div class="row">
+				<div id="selection">
+					<br/>
+					<select id="inputLang" onchange="inputLang = this.value">
+						<option value="en">English</option>
+					</select>
+					<span>to</span>
+					<select id="outputLang" onchange="outputLang = this.value">
+						<option value="es">Spanish</option>
+						<option value="de">German</option>
+						<option value="fr">French</option>
+					</select>
+					<br/>
+					<br/>
+					<button onclick="showMainMenu()">Continue</button>
+				</div>
+				<div id="mainMenu" style="width: 50%; margin: 0 auto;">
+					<div id="menuButtons">
+						<button onclick="showTranslatePanel()">Translate</button>
+						<button onclick="showQuizPanel()">Quiz</button>
+						<button onclick="showReadPicPanel()">Read Picture</button>
+					</div>
+					<button id="backButton" style="display: none; float:left" onclick="toMainMenu()">&lt;</button>
+					<span id="title" class="title"></span>
+					<br/>
+				</div>
+				<div id="translatePanel" class="center">
+					<br/>
+					<span id="translationDirectionFrom"></span>
+					<button onclick="changeDirection()">-></button>
+					<span id="translationDirectionTo"></span>
+					<br/>
+					<br/>
+					<img id='micImage_t' src="images/mic.png" onmouseenter="this.style='border: 1px solid gray'" onmouseleave="this.style='border: 1px solid white'" onclick="toggleRecording('t')"/>
+					<textarea id="inputText" rows="3" cols="20" readonly="readonly"></textarea>
+					&nbsp;&nbsp;
+					<!--<button onclick="translateIt()">Translate</button>
+					&nbsp;&nbsp;-->
+					<textarea id="outputText" rows="3" cols="20" readonly="readonly"></textarea>
+					<img src="images/speaker.png" onmouseenter="this.style='border: 1px solid gray'" onmouseleave="this.style='border: 1px solid white'" onclick="playLastResponse()" />
+				</div>
+				<div id="quizPanel" class="center">
+					<div id="quizStartPanel">
+						<br/>
+						<br/>
+						<button onclick="startQuiz()">Start</button>
+					</div>
+					<div id="questionPanel" style="display:none">
+						<br/>
+						<span id="questionNumber">1/5</span>
+						&nbsp;,&nbsp;
+						<span id="score">0</span>
+						<br/>
+						<br/>
+
+						<br/>
+						<textarea id="question" rows="3" cols="20" readonly="readonly"></textarea>
+						<br/>
+						<br/>
+						<img id='micImage_q' src="images/mic.png" onclick="toggleRecording('q')"/>
+						<br/>
+						<textarea id="answer" rows="3" cols="20" readonly="readonly"></textarea>
+						<br/>
+						<img id="result" width="32" height="32" />
+						<br/>
+						<br/>
+						<button id="nextQuestion" onclick="nextQuestion()">Next</button>
+					</div>
+				</div>
+				<div id="readPicPanel" class="center">
+					<br/>
+					<br/>
+					<img src="images/camera.png" onmouseenter="this.style='border: 1px solid gray'" onmouseleave="this.style='border: 1px solid white'" onclick="prepareCamera()" />
+					<br/>
+					<br/>
+					<div id="pictureGrabber">
+						<div id="camera">
+							<select id="videoSource" style="vertical-align:middle"></select>
+							&nbsp;&nbsp;							
+							<video id="video" onclick="takePicture()" width="320" height="240" style="vertical-align:middle">Video stream not available.</video>
+						</div>
+						<canvas id="canvas" width="320" height="240"></canvas>
+						<div id="output">
+							<span style="display:block;font-weight:bold">Picture taken</span>
+							<img id="photo" alt="The screen capture will appear in this box." width="320" height="240" onclick="usePicture()">
+						</div>
+						<br/>
+						<br/>
+					</div>
+					<br/>
+					<br/>
+					<textarea id="inputTextp" rows="3" cols="20" readonly="readonly"></textarea>
+					<img src="images/speaker.png" onmouseenter="this.style='border: 1px solid gray'" onmouseleave="this.style='border: 1px solid white'" onclick="playTextReadFromPic()" />
+					<!--<button onclick="translateTextReadFromPic()">Translate</button>-->
+					<textarea id="outputTextp" rows="3" cols="20" readonly="readonly"></textarea>
+					<img src="images/speaker.png" onmouseenter="this.style='border: 1px solid gray'" onmouseleave="this.style='border: 1px solid white'" onclick="playTranslatedTextFromPic()" />
+				</div>
+				<div class="center">
+					<br/>
+					<br/>
+					<div id="speechStatus"></div>
+				</div>
+			</div>
+		</div>
+	</div>
+</body>
+<script src="https://apis.google.com/js/api.js" onload="this.onload=function(){};initGoogleServices()" onreadystatechange="if (this.readyState === 'complete') this.onload()"></script>
+</html>
